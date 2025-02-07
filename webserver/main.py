@@ -9,6 +9,7 @@ from gettext import gettext as _
 
 import tornado.httpserver
 import tornado.ioloop
+import tornado.log
 from social_tornado.models import init_social
 from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker
@@ -16,6 +17,7 @@ from tornado import web
 from tornado.options import define, options
 
 from webserver import loader, models, social_routes, handlers
+from webserver.services import AsyncService
 
 CONF = loader.get_settings()
 define("host", default="", type=str, help=_("The host address on which to listen"))
@@ -123,11 +125,11 @@ def bind_topdir_book_names(cache):
 
 def make_app():
     auth_db_path = CONF["user_database"]
-    logging.info("Init library with [%s]" % options.with_library)
-    logging.info("Init AuthDB  with [%s]" % auth_db_path)
-    logging.info("Init Static  with [%s]" % CONF["resource_path"])
-    logging.info("Init HTML    with [%s]" % CONF["html_path"])
-    logging.info("Init Nuxtjs  with [%s]" % CONF["nuxt_env_path"])
+    logging.debug("Init library with [%s]" % options.with_library)
+    logging.debug("Init AuthDB  with [%s]" % auth_db_path)
+    logging.debug("Init Static  with [%s]" % CONF["resource_path"])
+    logging.debug("Init HTML    with [%s]" % CONF["html_path"])
+    logging.debug("Init Nuxtjs  with [%s]" % CONF["nuxt_env_path"])
 
     if options.update_config:
         logging.info("updating configs ...")
@@ -191,6 +193,7 @@ def make_app():
     )
 
     logging.info("Now, Running...")
+    AsyncService().setup(book_db, ScopedSession)
     app = web.Application(social_routes.SOCIAL_AUTH_ROUTES + handlers.routes(), **app_settings)
     app._engine = engine
     return app
@@ -212,8 +215,20 @@ def get_upload_size():
     return int(s) * n
 
 
+def setup_logging():
+    # tornado 的 默认log 已在supervisor中配置为file了，这里再增加一个console的
+    # 创建控制台处理程序并设置格式
+    logger = logging.getLogger()
+    if options.log_file_prefix:
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(tornado.log.LogFormatter())
+        logger.addHandler(console_handler)
+
+
 def main():
     tornado.options.parse_command_line()
+    setup_logging()
     app = make_app()
     http_server = tornado.httpserver.HTTPServer(app, xheaders=True, max_buffer_size=get_upload_size())
     http_server.listen(options.port, options.host)

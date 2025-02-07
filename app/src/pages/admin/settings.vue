@@ -16,21 +16,22 @@
                   <p v-for="t in card.tips" :key="t.text">{{t.text}} <a v-if="t.link" target="_blank" :href="t.link">链接</a></p>
                 </template>
 
-                <template v-for="f in card.fields">
-                  <v-checkbox small hide-details v-if="f.type === 'checkbox' " :prepend-icon="f.icon" v-model="settings[f.key]" :key="f.key" :label="f.label" ></v-checkbox>
-                  <v-textarea outlined v-else-if="f.type === 'textarea' " :prepend-icon="f.icon" v-model="settings[f.key]" :key="f.key" :label="f.label" ></v-textarea>
-                  <v-text-field v-else :prepend-icon="f.icon" v-model="settings[f.key]" :key="f.key" :label="f.label" type="text"></v-text-field>
+                <template v-for="f in card.fields" :key="f.key" >
+                  <v-checkbox small hide-details v-if="f.type === 'checkbox' " :prepend-icon="f.icon" v-model="settings[f.key]" :label="f.label" ></v-checkbox>
+                  <v-textarea outlined v-else-if="f.type === 'textarea' " :prepend-icon="f.icon" v-model="settings[f.key]" :label="f.label" ></v-textarea>
+                  <v-select small hide-details v-else-if="f.type === 'select' " :prepend-icon="f.icon" v-model="settings[f.key]" :items="f.items" :label="f.label" > </v-select>
+                  <v-text-field v-else :prepend-icon="f.icon" v-model="settings[f.key]" :label="f.label" type="text"></v-text-field>
                 </template>
-                <template v-for="b in card.buttons">
-                  <v-btn :key="b.label" @click="run(b.action)" color="primary"><v-icon>{{b.icon}}</v-icon>{{b.label}}</v-btn>
+                <template v-for="b in card.buttons" :key="b.label" >
+                  <v-btn @click="run(b.action)" color="primary"><v-icon>{{b.icon}}</v-icon>{{b.label}}</v-btn>
                 </template>
 
-                <template v-for="g in card.groups" >
-                  <v-checkbox small hide-details v-model="settings[g.key]" :key="g.label" :label="g.label"></v-checkbox>
+                <template v-for="g in card.groups" :key="g.label" >
+                  <v-checkbox small hide-details v-model="settings[g.key]" :label="g.label"></v-checkbox>
                   <template v-if="settings[g.key]">
-                    <template v-for="f in g.fields">
-                      <v-textarea outlined v-if="f.type === 'textarea' " :prepend-icon="f.icon" v-model="settings[f.key]" :key="f.key" :label="f.label" ></v-textarea>
-                      <v-text-field v-else :prepend-icon="f.icon" v-model="settings[f.key]" :key="f.key" :label="f.label" type="text"></v-text-field>
+                    <template v-for="f in g.fields" :key="f.key" >
+                      <v-textarea outlined v-if="f.type === 'textarea' " :prepend-icon="f.icon" v-model="settings[f.key]" :label="f.label" ></v-textarea>
+                      <v-text-field v-else :prepend-icon="f.icon" v-model="settings[f.key]" :label="f.label" type="text"></v-text-field>
                     </template>
                   </template>
                 </template>
@@ -127,6 +128,7 @@ export default {
             title: "基础信息",
             fields: [
                 { icon: "home", key: "site_title", label: "网站标题", },
+                { icon: "mdi-copyright", key: "HEADER", label: "网站公告", type: 'textarea' },
                 { icon: "mdi-copyright", key: "FOOTER", label: "网站脚注", type: 'textarea' },
             ],
             groups: [
@@ -176,9 +178,20 @@ export default {
                 { icon: "email", key: "smtp_server", label: "SMTP服务器（例如 smtp-mail.outlook.com:587）" },
                 { icon: "person", key: "smtp_username", label: "SMTP用户名（例如 user@gmail.com）" },
                 { icon: "lock", key: "smtp_password", label: "SMTP密码" },
+                { icon: "info", key: "smtp_encryption", label: "SMTP安全性", type: 'select',
+                    items: [{text: "SSL", value: "SSL"}, {text: "TLS(多数邮箱为此选项)", value: "TLS"} ]
+                },
             ],
             buttons: [
                 { icon: "email", label: "测试邮件", action: "test_email" },
+            ],
+        },
+        {
+            show: false,
+            title: "书籍标签分类",
+            subtitle: '配置「分类导航」页面里预设的分类。添加书籍时，若书名或者作者名称出现以下分类，则自动添加对应的标签。',
+            fields: [
+                { icon: "person", key: "BOOK_NAV", type: 'textarea', label: "分类" },
             ],
         },
         {
@@ -187,17 +200,34 @@ export default {
             fields: [ ],
             show_friends: true,
         },
+
+        {
+            show: false,
+            title: "互联网书籍信息源",
+            fields: [
+                { icon: "", key: "auto_fill_meta", label: "自动从互联网拉取新书的书籍信息", type: 'checkbox' },
+                { icon: "info", key: "douban_baseurl", label: "豆瓣插件API地址(例如 http://10.0.0.1:8080 )" },
+                { icon: "info", key: "douban_max_count", label: "豆瓣插件API查询结果数量" },
+            ],
+            tips: [
+                {
+                    text: "若需要启用豆瓣插件，请参阅安装文档的说明。若出现失败，可尝试更换镜像，例如 talebook/douban-api-rs ",
+                    link: "https://github.com/talebook/talebook/blob/master/document/README.zh_CN.md#%E5%A6%82%E6%9E%9C%E9%85%8D%E7%BD%AE%E8%B1%86%E7%93%A3%E6%8F%92%E4%BB%B6",
+                }
+            ],
+        },
+
         {
             show: false,
             title: "高级配置项",
             fields: [
                 { icon: "home", key: "static_host", label: "CDN域名" },
                 // 后续可以修改为choice下拉框选项
-                { icon: "info", key: "BOOK_NAMES_FORMAT", label: "目录和文件名模式（utf8为保留原始中文，en表示拼音英文）" },
+                { icon: "info", key: "BOOK_NAMES_FORMAT", label: "目录和文件名模式", type: 'select',
+                    items: [{text: "使用拼音字母目录名 (兼容性高)", value: "en"}, {text: "使用中文目录名 (UTF8编码，更美观)", value: "utf8"} ]
+                },
                 { icon: "info", key: "avatar_service", label: "可使用www.gravatar.com或cravatar.cn头像服务" },
                 { icon: "info", key: "MAX_UPLOAD_SIZE", label: "文件上传字节数限制(例如100MB或100KB）" },
-                { icon: "info", key: "douban_baseurl", label: "豆瓣插件API地址(例如 http://10.0.0.1:8080 )" },
-                { icon: "info", key: "douban_max_count", label: "豆瓣插件API查询结果数量" },
                 { icon: "lock", key: "cookie_secret", label: "COOKIE随机密钥" },
                 { icon: "info", key: "scan_upload_path", label: "批量导入扫描目录" },
                 { icon: "info", key: "push_title", label: "邮件推送的标题" },
@@ -207,8 +237,8 @@ export default {
             ],
             tips: [
                 {
-                    text: "若需要调整Logo，或启用豆瓣插件，请参阅安装文档的说明。",
-                    link: "https://github.com/talebook/talebook/blob/master/document/INSTALL.zh_CN.md#%E5%85%B6%E4%BB%96%E9%85%8D%E7%BD%AE",
+                    text: "若需要调整Logo，请参阅安装文档的说明。",
+                    link: "https://github.com/talebook/talebook/blob/master/document/README.zh_CN.md#logo",
                 }
             ],
         },
@@ -246,6 +276,7 @@ export default {
             data.append('smtp_server', this.settings['smtp_server']);
             data.append('smtp_username', this.settings['smtp_username']);
             data.append('smtp_password', this.settings['smtp_password']);
+            data.append('smtp_encryption', this.settings['smtp_encryption']);
             this.$backend("/admin/testmail", {
                 method: 'POST',
                 body: data,

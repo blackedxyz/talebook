@@ -3,21 +3,28 @@
         <v-card-title> 导入图书 <v-chip small class="primary">Beta</v-chip> </v-card-title>
         <v-card-text>
         请将需要导入的书籍放入{{ scan_dir }}目录中。 支持的格式为 azw/azw3/epub/mobi/pdf/txt 。<br/>
-        请注意：此功能为后台异步执行，不必重复点击，可刷新关注表格状态进展。已导入成功的记录请不要删除，以免书籍被再次导入。<br/>
+        请注意：此功能为后台异步执行，不必重复点击，启动后可关闭浏览器，或刷新关注表格状态进展。已导入成功的记录请不要删除，以免书籍被再次导入。<br/>
         另外，还可以使用<a target="_blank" href="https://calibre-ebook.com/">PC版Calibre软件</a>管理书籍，但是请注意：使用完PC版后，需重启Web版方可生效。
         </v-card-text>
         <v-card-actions>
-            <v-btn :disabled="loading" color="primary" @click="scan_books"><v-icon>mdi-file-find</v-icon>扫描书籍</v-btn>
             <v-btn :disabled="loading" outlined color="primary" @click="getDataFromApi"><v-icon>mdi-reload</v-icon>刷新</v-btn>
+            <v-btn :disabled="loading" color="primary" @click="scan_books"><v-icon>mdi-file-find</v-icon>扫描书籍</v-btn>
             <template v-if="selected.length > 0">
-                <v-btn :disabled="loading" outlined color="primary" @click="import_books"><v-icon>mdi-import</v-icon>导入书籍 </v-btn>
+                <v-btn :disabled="loading" color="secondary" @click="import_books"><v-icon>mdi-import</v-icon>导入选中书籍 </v-btn>
                 <v-btn :disabled="loading" outlined color="primary" @click="delete_record"><v-icon>mdi-delete</v-icon>删除 </v-btn>
+            </template>
+            <template v-else>
+                <v-btn :disabled="loading" color="warning" @click="import_books"><v-icon>mdi-import</v-icon>导入全部书籍 </v-btn>
             </template>
         </v-card-actions>
         <v-card-text>
-            <div v-if="selected.length == 0">请勾选需要处理的文件（默认情况下全选即可。已存在的书籍，即使勾选了也不会重复导入）</div>
+            <div v-if="selected.length == 0">请勾选需要处理的文件（默认情况下导入全部书籍即可。已存在的书籍，即使勾选了也不会重复导入）</div>
             <div v-else>共选择了{{ selected.length }}个</div>
         </v-card-text>
+        <v-tabs v-model="filter_type" @change="getDataFromApi">
+            <v-tab href="#todo">待处理 ({{ count_todo }})</v-tab>
+            <v-tab href="#done">已导入 ({{ count_done  }})</v-tab>
+        </v-tabs>
         <v-data-table
             dense
             class="elevation-1 text-body-2"
@@ -29,6 +36,8 @@
             :items="items"
             :options.sync="options"
             :server-items-length="total"
+            sort-by="create_time"
+            sort-desc="true"
             :loading="loading"
             :page.sync="page"
             :items-per-page="100"
@@ -53,6 +62,7 @@
 <script>
 export default {
     data: () => ({
+        filter_type: "todo",
         selected: [],
         scan_dir: "/data/books/imports/",
         search: "",
@@ -61,6 +71,8 @@ export default {
         total: 0,
         loading: false,
         options: {},
+        count_todo: 0,
+        count_done: 0,
         headers: [
             { text: "ID", sortable: true, value: "id" },
             { text: "状态", sortable: true, value: "status" },
@@ -96,6 +108,7 @@ export default {
             const { sortBy, sortDesc, page, itemsPerPage } = this.options;
 
             var data = new URLSearchParams();
+            data.append("filter", this.filter_type);
             if (page != undefined) {
                 data.append("page", page);
             }
@@ -119,34 +132,37 @@ export default {
                     this.items = rsp.items;
                     this.total = rsp.total;
                     this.scan_dir = rsp.scan_dir;
+                    this.count_done = rsp.summary.done;
+                    this.count_todo = rsp.summary.todo;
                 })
                 .finally(() => {
                     this.loading = false;
                 });
         },
         loop_check_status(url, callback) {
-            this.$backend(url)
-                .then((rsp) => {
-                    if (rsp.err != "ok") {
-                        this.$alert("error", rsp.msg);
-                        return;
-                    }
-                    if (callback(rsp)) {
-                        setTimeout(() => {
-                            this.loop_check_status(url, callback);
-                        }, 1000);
-                    } else {
-                        this.getDataFromApi();
-                        this.$alert("info", "处理完毕！");
-                    }
-                })
+            setTimeout(() => {
+                this.$backend(url)
+                    .then((rsp) => {
+                        if (rsp.err != "ok") {
+                            this.$alert("error", rsp.msg);
+                            return;
+                        }
+                        if (callback(rsp)) {
+                            setTimeout(() => {
+                                this.loop_check_status(url, callback);
+                            }, 1000);
+                        } else {
+                            this.getDataFromApi();
+                            this.$alert("info", "处理完毕！");
+                        }
+                    })
+            }, 2000);
         },
         scan_books() {
             this.loading = true;
             this.$backend("/admin/scan/run", {
                 method: "POST",
-            })
-                .then((rsp) => {
+            }).then((rsp) => {
                     if (rsp.err !== "ok") {
                         this.$alert("error", rsp.msg);
                         return;
@@ -155,6 +171,8 @@ export default {
                     //this.check_scan_status();
                     this.loop_check_status("/admin/scan/status", (rsp) => {
                         this.scan = rsp.status;
+                        this.count_done = rsp.summary.done;
+                        this.count_todo = rsp.summary.todo;
                         if (this.scan.new === 0) {
                             this.loading = false;
                             return false;
@@ -163,25 +181,31 @@ export default {
                         return true;
                     });
                 })
-                .finally(() => {});
         },
         import_books() {
             this.loading = true;
+            var hashlist = "all";
+            if (this.selected.length > 0) {
+                hashlist = this.selected.map((v) => {
+                        return v.hash;
+                    });
+            }
             this.$backend("/admin/import/run", {
                 method: "POST",
                 body: JSON.stringify({
-                    hashlist: this.selected.map((v) => {
-                        return v.hash;
-                    }),
+                    hashlist: hashlist,
                 }),
             })
                 .then((rsp) => {
                     if (rsp.err !== "ok") {
                         this.$alert("error", rsp.msg);
                     }
+
                     //this.check_import_status();
                     this.loop_check_status("/admin/import/status", (rsp) => {
                         this.import = rsp.status;
+                        this.count_done = rsp.summary.done;
+                        this.count_todo = rsp.summary.todo;
                         if (this.import.ready === 0) {
                             this.loading = false;
                             return false;
@@ -190,9 +214,6 @@ export default {
                         return true;
                     });
                 })
-                .finally(() => {
-                    this.loading = false;
-                });
         },
         delete_record() {
             console.log(this.selected);

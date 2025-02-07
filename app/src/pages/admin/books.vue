@@ -4,9 +4,7 @@
         <v-card-text> 此表格仅展示图书的部分字段，点击即可快捷修改。完整图书信息请点击链接查看书籍详情页面</v-card-text>
         <v-card-actions>
             <v-btn :disabled="loading" outlined color="primary" @click="getDataFromApi"><v-icon>mdi-reload</v-icon>刷新</v-btn>
-            <template v-if="books_selected.length > 0">
-                <v-btn :disabled="loading" outlined color="info" @click="auto_fetch"><v-icon>mdi-delete</v-icon>自动填充空缺字段 </v-btn>
-            </template>
+            <v-btn :disabled="loading" outlined color="info" @click="show_dialog_auto_file"><v-icon>mdi-info</v-icon>自动更新图书信息... </v-btn>
             <v-spacer></v-spacer>
             <v-text-field cols="2" dense v-model="search" append-icon="mdi-magnify" label="搜索" single-line hide-details></v-text-field>
         </v-card-actions>
@@ -40,7 +38,7 @@
             </template>
             <template v-slot:item.title="{ item }">
                 <v-edit-dialog large :return-value.sync="item.title" @save="save(item, 'title')" save-text="保存" cancel-text="取消">
-                    <span class="three-lines" style="max-width: 200px">{{ item.title }}</span>
+                    <span class="three-lines" style="max-width: 200px; min-width: 120px; ">{{ item.title }}</span>
 
                     <template v-slot:input>
                         <div class="mt-4 text-h6">修改字段</div>
@@ -152,13 +150,14 @@
 
             <template v-slot:item.comments="{ item }">
                 <v-edit-dialog large :return-value.sync="item.comments" @save="save(item, 'comments')" save-text="保存" cancel-text="取消">
-                    <span :title="item.comments" style="width: 300px" class="three-lines">{{ item.comments }}</span>
+                    <span :title="item.comments" style="width: 300px" class="three-lines">{{ item.comments.substr(0, 80) }}</span>
                     <template v-slot:input>
                         <div class="mt-4 text-h6">修改字段</div>
                         <v-textarea v-model="item.comments" label="简介"></v-textarea>
                     </template>
                 </v-edit-dialog>
             </template>
+
             <template v-slot:item.actions="{ item }">
                 <v-menu offset-y right>
                     <template v-slot:activator="{ on }">
@@ -174,14 +173,44 @@
         </v-data-table>
 
         <!-- 小浮窗提醒 -->
-        <v-snackbar v-model="snack" :timeout="1000" :color="snackColor">
+        <v-snackbar v-model="snack" top :timeout="3000" :color="snackColor">
             {{ snackText }}
 
             <template v-slot:action="{ attrs }">
                 <v-btn v-bind="attrs" text @click="snack = false"> 关闭 </v-btn>
             </template>
         </v-snackbar>
-    </v-card>
+
+        <!-- 提醒拉取图书的规则说明 -->
+        <v-dialog v-model="meta_dialog" persistent transition="dialog-bottom-transition" width="500">
+            <v-card>
+                <v-toolbar flat dense dark color="primary"> 提醒 </v-toolbar>
+                <v-card-title></v-card-title>
+                <v-card-text>
+                    <p> 即将从互联网拉取所有图书的书籍信息，请了解以下功能限制：</p>
+                    <p> 1. 请在「系统设置」中配置好「互联网书籍信息源」，启用豆瓣插件；</p>
+                    <p> 2. 本操作只更新「没有封面」或「没有简介」的图书；</p>
+                    <p> 3. 受限于豆瓣等服务的限制，每秒钟仅更新1本书; </p>
+                    <br></br>
+                    <template v-if="progress.total > 0">
+                        <p>当前进展：<v-btn small text link @click="refresh_progress">刷新</v-btn></p>
+                        <p>总共 {{ progress.total }} 本书籍，已更新 {{  progress.done }} 本，更新失败 {{ progress.fail }} 本，无需处理 {{  progress.skip }} 本。</p>
+                    </template>
+                    <p v-else> 预计需要运行 {{auto_fill_mins}} 分钟，在此期间请不要停止程序</p>
+
+                    <template v-else>
+
+                    </template>
+                </v-card-text>
+                <v-card-actions>
+                    <v-btn @click="meta_dialog = !meta_dialog">取消</v-btn>
+                    <v-spacer></v-spacer>
+                    <v-btn color="primary" @click="auto_fill">开始执行！</v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
+
+</v-card>
 </template>
 
 <script>
@@ -190,6 +219,7 @@ export default {
         snack: false,
         snackColor: "",
         snackText: "",
+        meta_dialog: false,
 
         books_selected: [],
         tag_input: null,
@@ -211,6 +241,8 @@ export default {
             { text: "操作", sortable: false, value: "actions" },
         ],
         progress: {
+            skip: 0,
+            fail: 0,
             done: 0,
             total: 0,
             status: "finish",
@@ -224,6 +256,11 @@ export default {
             },
             deep: true,
         },
+    },
+    computed: {
+        auto_fill_mins: function() {
+            return Math.floor(this.total/60) + 1;
+        }
     },
     methods: {
         getDataFromApi() {
@@ -261,8 +298,32 @@ export default {
                     this.loading = false;
                 });
         },
-        auto_fetch() {
-            this.$alert("error", "功能正在开发中");
+        refresh_progress() {
+            this.$backend("/admin/book/fill", {
+                method: "GET",
+            })
+            .then((rsp) => {
+                this.progress = rsp.status;
+            })
+        },
+        show_dialog_auto_file() {
+            this.meta_dialog = true;
+            this.refresh_progress();
+        },
+        auto_fill() {
+            this.$backend("/admin/book/fill", {
+                method: "POST",
+                body: JSON.stringify({"idlist": "all"}),
+            })
+            .then((rsp) => {
+                this.meta_dialog = false;
+                if (rsp.err != "ok") {
+                    this.$alert("error", rsp.msg);
+                }
+                this.snack = true;
+                this.snackColor = "success";
+                this.snackText = rsp.msg;
+            })
         },
         delete_book(book) {
             this.loading = true;

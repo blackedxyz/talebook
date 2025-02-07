@@ -10,6 +10,7 @@ from gettext import gettext as _
 import tornado.escape
 from tornado import web
 from webserver import loader
+from webserver.services.mail import MailService
 from webserver.handlers.base import BaseHandler, auth, js
 from webserver.models import Message, Reader
 from webserver.version import VERSION
@@ -109,7 +110,7 @@ class SignUp(BaseHandler):
         mail_to = user.email
         mail_from = CONF["smtp_username"]
         mail_body = CONF["SIGNUP_MAIL_CONTENT"] % args
-        self.mail(mail_from, mail_to, mail_subject, mail_body)
+        MailService().send_mail(mail_from, mail_to, mail_subject, mail_body)
 
     @js
     def post(self):
@@ -213,7 +214,7 @@ class UserReset(BaseHandler):
         mail_to = user.email
         mail_from = CONF["smtp_username"]
         mail_body = CONF["RESET_MAIL_CONTENT"] % args
-        self.mail(mail_from, mail_to, mail_subject, mail_body)
+        MailService().send_mail(mail_from, mail_to, mail_subject, mail_body)
 
         # do save into db
         try:
@@ -294,6 +295,7 @@ class UserInfo(BaseHandler):
             "socials": CONF["SOCIALS"],
             "friends": CONF["FRIENDS"],
             "footer": CONF["FOOTER"],
+            "header": CONF["HEADER"],
             "allow": {
                 "register": CONF["ALLOW_REGISTER"],
                 "download": CONF["ALLOW_GUEST_DOWNLOAD"],
@@ -378,7 +380,7 @@ class Welcome(BaseHandler):
             return {"err": "free", "msg": _(u"无需访问码")}
         if self.invited_code_is_ok():
             return {"err": "free", "msg": _(u"已输入访问码")}
-        return {"err": "ok", "msg": CONF["INVITE_MESSAGE"]}
+        return {"err": "ok", "msg": "", "welcome": CONF["INVITE_MESSAGE"]}
 
     @js
     def post(self):
@@ -386,7 +388,7 @@ class Welcome(BaseHandler):
         if not code or code != CONF["INVITE_CODE"]:
             return {"err": "params.invalid", "msg": _(u"访问码无效")}
         self.mark_invited()
-        return {"err": "ok", "msg": "ok"}
+        return {"err": "ok", "msg": ""}
 
 
 def routes():

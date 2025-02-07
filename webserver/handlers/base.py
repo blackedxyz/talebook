@@ -4,9 +4,7 @@
 
 import base64
 import datetime
-import hashlib
 import logging
-import os
 import time
 from collections import defaultdict
 from gettext import gettext as _
@@ -93,6 +91,27 @@ def is_admin(func):
 
 class BaseHandler(web.RequestHandler):
     _path_to_env = {}
+
+    def _request_summary(self) -> str:
+        userid = 0
+        username = "-"
+        if self.current_user:
+            userid = self.current_user.id
+            username = self.current_user.username
+
+        return '%s %s (%s) "%d %s"' % (
+            self.request.method,
+            self.request.uri,
+            self.request.remote_ip,
+            userid,
+            username,
+        )
+
+    def get_argument(self, name, default=None, strip=True):
+        value = super().get_argument(name, default, strip)
+        if value == 'null':
+            return default
+        return value
 
     def get_secure_cookie(self, key):
         if not self.cookies_cache.get(key, ""):
@@ -194,6 +213,7 @@ class BaseHandler(web.RequestHandler):
 
     def on_finish(self):
         ScopedSession = self.settings["ScopedSession"]
+        self.session.close()
         ScopedSession.remove()
 
     def static_url(self, path, **kwargs):
@@ -208,18 +228,17 @@ class BaseHandler(web.RequestHandler):
         if not login_time or int(login_time) < int(time.time()) - 7 * 86400:
             return None
         uid = self.get_secure_cookie("user_id")
-        return int(uid) if uid.isdigit() else None
+        return int(uid) if uid and uid.isdigit() else None
 
     def get_current_user(self):
         user_id = self.user_id()
         if user_id:
             user_id = int(user_id)
-        user = self.session.query(Reader).get(user_id) if user_id else None
-        logging.debug("Query User(%s) = %s" % (user_id, user))
+        user = self.session.get(Reader, user_id) if user_id else None
 
         admin_id = self.get_secure_cookie("admin_id")
         if admin_id:
-            self.admin_user = self.session.query(Reader).get(int(admin_id))
+            self.admin_user = self.session.get(Reader, int(admin_id))
         elif user and user.is_admin():
             self.admin_user = user
         return user
@@ -474,57 +493,6 @@ class BaseHandler(web.RequestHandler):
         except:
             start = 0
         return max(0, start)
-
-    def get_path_progress(self, book_id):
-        return os.path.join(CONF["progress_path"], "progress-%s.log" % book_id)
-
-    def create_mail(self, sender, to, subject, body, attachment_data, attachment_name):
-        from email.header import Header
-        from email.mime.application import MIMEApplication
-        from email.mime.multipart import MIMEMultipart
-        from email.mime.text import MIMEText
-        from email.utils import formatdate
-
-        mail = MIMEMultipart()
-        mail["From"] = sender
-        mail["To"] = to
-        mail["Subject"] = Header(subject, "utf-8")
-        mail["Date"] = formatdate(localtime=True)
-        mail["Message-ID"] = "<tencent_%s@qq.com>" % hashlib.md5(mail.as_string().encode("UTF-8")).hexdigest()
-        mail.preamble = "You will not see this in a MIME-aware mail reader.\n"
-
-        if body is not None:
-            msg = MIMEText(body, "plain", "utf-8")
-            mail.attach(msg)
-
-        if attachment_data is not None:
-            name = Header(attachment_name, "utf-8").encode()
-            msg = MIMEApplication(attachment_data, "octet-stream", charset="utf-8", name=name)
-            msg.add_header("Content-Disposition", "attachment", filename=name)
-            mail.attach(msg)
-        return mail.as_string()
-
-    def mail(self, sender, to, subject, body, attachment_data=None, attachment_name=None, **kwargs):
-        from calibre.utils.smtp import sendmail
-
-        smtp_port = 465
-        relay = kwargs.get("relay", CONF["smtp_server"])
-        if ':' in relay:
-            relay, smtp_port = relay.split(":")
-        username = kwargs.get("username", CONF["smtp_username"])
-        password = kwargs.get("password", CONF["smtp_password"])
-        mail = self.create_mail(sender, to, subject, body, attachment_data, attachment_name)
-        sendmail(
-            mail,
-            from_=sender,
-            to=[to],
-            timeout=20,
-            port=int(smtp_port),
-            encryption="SSL",
-            relay=relay,
-            username=username,
-            password=password,
-        )
 
 
 class ListHandler(BaseHandler):
