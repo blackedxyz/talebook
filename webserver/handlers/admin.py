@@ -15,6 +15,8 @@ from gettext import gettext as _
 import tornado
 
 from webserver import loader
+from webserver.services.autofill import AutoFillService
+from webserver.services.mail import MailService
 from webserver.handlers.base import BaseHandler, auth, js, is_admin
 from webserver.models import Reader
 from webserver.utils import SimpleBookFormatter
@@ -119,6 +121,7 @@ class AdminTestMail(BaseHandler):
     @js
     @auth
     def post(self):
+        mail_enc = self.get_argument("smtp_encryption")
         mail_server = self.get_argument("smtp_server")
         mail_username = self.get_argument("smtp_username")
         mail_password = self.get_argument("smtp_password")
@@ -129,7 +132,7 @@ class AdminTestMail(BaseHandler):
         mail_body = _(u"这是一封测试邮件，验证邮件参数是否配置正确。")
 
         try:
-            self.mail(
+            MailService().do_send_mail(
                 mail_from,
                 mail_to,
                 mail_subject,
@@ -137,6 +140,8 @@ class AdminTestMail(BaseHandler):
                 relay=mail_server,
                 username=mail_username,
                 password=mail_password,
+                encryption=mail_enc,
+
             )
             return {"err": "ok", "msg": _(u"发送成功")}
         except Exception as e:
@@ -231,8 +236,10 @@ class AdminSettings(BaseHandler):
             "ALLOW_GUEST_READ",
             "ALLOW_REGISTER",
             "BOOK_NAMES_FORMAT",
+            "BOOK_NAV",
             "FRIENDS",
             "FOOTER",
+            "HEADER",
             "INVITE_CODE",
             "INVITE_MESSAGE",
             "INVITE_MODE",
@@ -248,12 +255,14 @@ class AdminSettings(BaseHandler):
             "douban_apikey",
             "douban_baseurl",
             "douban_max_count",
+            "auto_fill_meta",
             "push_title",
             "push_content",
             "site_title",
             "smtp_password",
             "smtp_server",
             "smtp_username",
+            "smtp_encryption",
             "static_host",
             "xsrf_cookies",
             "settings_path",
@@ -344,7 +353,7 @@ class AdminInstall(BaseHandler):
         # set a random secret
         args["cookie_secret"] = u"%s" % uuid.uuid1()
         args["site_title"] = title
-        if invite == "true":
+        if invite == "true" and code:
             args["INVITE_MODE"] = True
             args["INVITE_CODE"] = code
         else:
@@ -468,6 +477,40 @@ class AdminBookList(BaseHandler):
         return {"err": "ok", "items": books, "total": total}
 
 
+class AdminBookFill(BaseHandler):
+    @js
+    @is_admin
+    def get(self):
+        s = AutoFillService()
+        status = {
+            "total": s.count_total,
+            "skip": s.count_skip,
+            "done": s.count_done,
+            "fail": s.count_fail,
+        }
+        return {"err": "ok", "msg": "ok", "status": status}
+
+    @js
+    @is_admin
+    def post(self):
+        req = tornado.escape.json_decode(self.request.body)
+        idlist = req["idlist"]
+        if not idlist:
+            return {"err": "params.error", "msg": _(u"参数错误")}
+
+        if idlist == "all":
+            idlist = list(self.cache.search(""))
+        elif isinstance(idlist, list):
+            for bid in idlist:
+                if not isinstance(bid, int):
+                    return {"err": "params.error.idlist", "msg": _(u"idlist参数错误")}
+        else:
+            return {"err": "params.error.idlist", "msg": _(u"idlist参数错误")}
+
+        AutoFillService().auto_fill_all(idlist)
+        return {"err": "ok", "msg": _(u"任务启动成功！请耐心等待，稍后再来刷新页面")}
+
+
 def routes():
     return [
         (r"/api/admin/ssl", AdminSSL),
@@ -476,4 +519,5 @@ def routes():
         (r"/api/admin/settings", AdminSettings),
         (r"/api/admin/testmail", AdminTestMail),
         (r"/api/admin/book/list", AdminBookList),
+        (r"/api/admin/book/fill", AdminBookFill),
     ]

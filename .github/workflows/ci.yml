@@ -1,7 +1,7 @@
 # This workflow will install Python dependencies, run tests and lint with a single version of Python
 # For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
 
-name: check lint and run pytest
+name: check code style, run pytest and nuxt build
 
 on:
   push:
@@ -13,7 +13,7 @@ on:
       - master
 
 jobs:
-  test:
+  test-server:
     runs-on: ubuntu-latest
     container:
       image: talebook/calibre-docker
@@ -29,7 +29,7 @@ jobs:
       - name: Install dependencies
         run: |
           python3 -m pip install --upgrade pip
-          pip3 install flake8 pytest
+          pip3 install flake8 pytest==7.4.4
           if [ -f requirements.txt ]; then pip3 install -r requirements.txt; fi
 
       - name: Lint with flake8
@@ -43,3 +43,21 @@ jobs:
       - name: Test with pytest
         run: |
           pytest ./tests
+
+  test-ui:
+    runs-on: ubuntu-latest
+    container:
+      image: node:16-alpine
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install dependencies
+        run: |
+          cd app
+          npm install
+
+      - name: nuxt build
+        run: |
+          cd app
+          npm run build

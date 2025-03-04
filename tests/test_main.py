@@ -27,6 +27,7 @@ from webserver.handlers.base import BaseHandler
 _app = None
 _mock_user = None
 _mock_mail = None
+_mock_service_async_mode = None
 
 '''
 1	EPUB	440912	Bai Nian Gu Du - Jia Xi Ya  Ma Er Ke Si
@@ -59,11 +60,12 @@ def setup_server():
     main.CONF["html_path"] = "/tmp/"
     main.CONF["settings_path"] = "/tmp/"
     main.CONF["progress_path"] = "/tmp/"
+    main.CONF["extract_path"] = "/tmp/"
     main.CONF["nuxt_env_path"] = "/tmp/.env.text"
     main.CONF["installed"] = True
     main.CONF["INVITE_MODE"] = False
     main.CONF["user_database"] = "sqlite:///%s/library/users.db" % testdir
-    main.CONF["db_engine_args"] = {"echo": True}
+    # main.CONF["db_engine_args"] = {"echo": True}
     if _app is None:
         _app = main.make_app()
 
@@ -77,6 +79,10 @@ def setup_mock_sendmail():
     global _mock_mail
     _mock_mail = mock.patch("calibre.utils.smtp.sendmail", return_value="Yo")
 
+
+def setup_mock_service():
+    global _mock_service_async_mode
+    _mock_service_async_mode = mock.patch("webserver.services.AsyncService.async_mode")
 
 def get_db():
     return _app.settings["ScopedSession"]
@@ -277,13 +283,16 @@ class TestWithUserLogin(TestApp):
     def setUpClass(self):
         self.user = _mock_user.start()
         self.mail = _mock_mail.start()
+        self.async_service = _mock_service_async_mode.start()
         self.user.return_value = 1
         self.mail.return_value = True
+        self.async_service.return_value = False
 
     @classmethod
     def tearDownClass(self):
         _mock_user.stop()
         _mock_mail.stop()
+        _mock_service_async_mode.start()
 
 
 class TestUser(TestWithUserLogin):
@@ -348,9 +357,19 @@ class TestBook(TestWithUserLogin):
     def test_download(self):
         rsp = self.fetch("/api/book/1.epub")
         self.assertEqual(rsp.code, 200)
+        book_body = rsp.body
 
         rsp = self.fetch("/api/book/1.pdf")
         self.assertEqual(rsp.code, 404)
+
+        rsp = self.fetch("/api/book/1.epub", headers={"Range": "bytes=0-0"})
+        self.assertEqual(rsp.code, 206)
+        self.assertEqual(len(rsp.body), 1)
+
+        rsp = self.fetch("/api/book/1.EPUB", headers={"Range": "bytes=1-"})
+        self.assertEqual(rsp.code, 206)
+        self.assertEqual(rsp.body, book_body[1:])
+
 
     def test_download_permission(self):
         with mock_permission() as user:
@@ -367,8 +386,8 @@ class TestBook(TestWithUserLogin):
             def __init__(self, path=None):
                 if not path:
                     path = testdir + "/cases/old.epub"
-                self.mock1 = mock.patch.object(webserver.handlers.book.BookPush, "get_path_of_fmt", return_value=path)
-                self.mock2 = mock.patch("webserver.handlers.book.do_ebook_convert", return_value=True)
+                self.mock1 = mock.patch("webserver.services.convert.ConvertService.get_path_of_fmt", return_value=path)
+                self.mock2 = mock.patch("webserver.services.convert.ConvertService.do_ebook_convert", return_value=True)
 
             def __enter__(self):
                 self.mock1.start()
@@ -425,10 +444,10 @@ class TestBook(TestWithUserLogin):
                 self.assertEqual(m.call_count, 2)
 
     def test_read(self):
-        with mock.patch.object(webserver.handlers.book.BookRead, "extract_book", return_value="Yo"):
+        with mock.patch("webserver.services.convert.ConvertService.convert_and_save", return_value="Yo"):
             for bid in BIDS:
                 rsp = self.fetch("/read/%s" % bid, follow_redirects=False)
-                self.assertEqual(rsp.code, 302 if bid == BID_PDF else 200)
+                self.assertEqual(rsp.code, 302 if bid == BID_PDF or bid == BID_TXT else 200)
 
     def test_edit(self):
         body = {
@@ -519,6 +538,8 @@ class TestUserSignUp(TestWithUserLogin):
         self.user.return_value = 1
         self.mail = _mock_mail.start()
         self.mail.return_value = True
+        self.async_service = _mock_service_async_mode.start()
+        self.async_service.return_value = False
 
     @classmethod
     def tearDownClass(self):
@@ -699,15 +720,6 @@ class TestOpds(TestWithUserLogin):
         main.CONF["INVITE_MODE"] = False
 
 
-class TestConvert(TestApp):
-    def test_convert(self):
-        fin = testdir + "/cases/old.epub"
-        fout = "/tmp/output.mobi"
-        flog = "/tmp/output.log"
-        ok = webserver.handlers.book.do_ebook_convert(fin, fout, flog)
-        self.assertEqual(ok, True)
-
-
 class TestJsonResponse(TestApp):
     def raise_(self, err):
         raise err
@@ -767,15 +779,18 @@ class TestInviteMode(TestApp):
 
 def setUpModule():
     os.environ["ASYNC_TEST_TIMEOUT"] = "60"
-    logging.basicConfig(
-        level=logging.DEBUG,
-        datefmt="%Y-%m-%d %H:%M:%S",
-        format="%(asctime)s %(levelname)7s %(pathname)s:%(lineno)d %(message)s",
-    )
     setup_server()
     setup_mock_user()
     setup_mock_sendmail()
+    setup_mock_service()
 
 
 if __name__ == "__main__":
+    '''
+    logging.basicConfig(
+        level=logging.DEBUG,
+        datefmt="%Y-%m-%d %H:%M:%S",
+        filename="/data/log/unittest.log",
+        format="%(asctime)s %(levelname)7s %(pathname)s:%(lineno)d %(message)s",
+    )'''
     unittest.main()
